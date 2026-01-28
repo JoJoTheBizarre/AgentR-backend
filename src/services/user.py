@@ -1,11 +1,13 @@
+from datetime import timedelta, datetime, timezone
+from typing import Any
+
 from jose import jwt
 from jose.exceptions import JWTError
-from datetime import timedelta, datetime, timezone
 from passlib.context import CryptContext
 from pydantic import BaseModel, Field
-from settings import AuthSettings
 
-from data.user import get_user_by_username, create_user
+from ..data.user import get_user_by_username, create_user
+from ..settings import AuthSettings
 from .status import InternalStatus
 
 auth_settings = AuthSettings()  # type: ignore
@@ -23,7 +25,7 @@ def get_hash(plain: str) -> str:
 
 
 def get_jwt_username(token: str) -> str:
-    """Attemps to retrieve username from payload raises JWTError if no username found or decoding fails"""
+    """Attempts to retrieve username from payload raises JWTError if no username found or decoding fails"""
     payload = UserPayload(
         **jwt.decode(
             token, auth_settings.SECRET_KEY, algorithms=[auth_settings.ALGORITHM]
@@ -47,8 +49,8 @@ def verify_credentials(name: str, plain: str) -> InternalStatus:
     return InternalStatus.SUCCESS
 
 
-def verify_password(plain: str, hash: str) -> bool:
-    return pwd_context.verify(plain, hash)
+def verify_password(plain: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain, hashed_password)
 
 
 def create_jwt_token(username: str) -> str:
@@ -60,8 +62,8 @@ def create_jwt_token(username: str) -> str:
     return encoded_jwt
 
 
-def create_payload(username: str) -> dict:
-    """crafts a payload for the jwt token"""
+def create_payload(username: str) -> dict[str, Any]:
+    """Crafts a payload for the jwt token"""
     now_utc = datetime.now(timezone.utc)
     exp = now_utc + timedelta(auth_settings.expire)
     return UserPayload(username=username, exp=exp).model_dump()
@@ -72,8 +74,8 @@ def register_user(username: str, plain_password: str) -> InternalStatus:
     # check whether a user with the given username already exists
     user = get_user_by_username(username)
     if not user:
-        hash = get_hash(plain_password)
-        _ = create_user(username, hash)
+        password_hash = get_hash(plain_password)
+        create_user(username, password_hash)
         return InternalStatus.SUCCESS
     else:
         return InternalStatus.USER_ALREADY_EXISTS

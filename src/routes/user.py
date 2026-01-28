@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, status, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 
-from service import verify_credentials, InternalStatus, create_jwt_token, register_user
+from ..services import verify_credentials, InternalStatus, create_jwt_token, register_user
 from .status import StatusDetail
 from .dto import UserIn
 
@@ -33,6 +33,3 @@ async def register(user: UserIn):
             status_code=status.HTTP_409_CONFLICT,
             detail=InternalStatus.USER_ALREADY_EXISTS
         )
-
-
-

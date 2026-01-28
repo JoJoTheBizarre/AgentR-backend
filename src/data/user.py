@@ -1,4 +1,4 @@
-from models import User
+from ..models import User
 
 def create_user(username: str, password_hash: str) -> User:
     """Create a new user in the database."""
