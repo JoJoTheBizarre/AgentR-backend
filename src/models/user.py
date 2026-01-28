@@ -1,11 +1,8 @@
-from datetime import datetime
+from sqlmodel import Field, SQLModel
+from uuid import UUID
 
-from pydantic import BaseModel, Field
 
-
-class User(BaseModel):
-    username: str = Field(..., max_length=50)
-    id: str
-    password_hash: str
-    created_at: datetime
-    updated_at: datetime
+class User(SQLModel, table=True):
+    id: UUID = Field(description="user id", default=None, primary_key=True)
+    username: str = Field(description="username for the user", index=True)
+    password_hash: str = Field(description="hashed password", default=None)

@@ -1,3 +1,3 @@
-from .user import User
+from src.models.user import User
 
 __all__ = ["User"]

@@ -5,5 +5,6 @@ conversation_router = APIRouter(prefix="/conversation")
 
 
 @conversation_router.get("/")
-def top():
+def get_conversations():
+    """Placeholder endpoint for conversation listing."""
     return "top level conversations route"

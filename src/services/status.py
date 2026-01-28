@@ -1,5 +1,6 @@
 from enum import StrEnum
 
+
 class InternalStatus(StrEnum):
     SUCCESS = "success"
     USER_NOT_FOUND = "user_not_found_in_db"
