@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-agentr}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agentr-network
+
+  migrate:
+    build: .
+    command: python -m src.migrations.migrate
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agentr}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - agentr-network
+
+  backend:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agentr}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      token_expire_minutes: ${token_expire_minutes:-30}
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - agentr-network
+    volumes:
+      - ./src:/home/appuser/app/src
+      - ./main.py:/home/appuser/app/main.py
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /home/appuser/app/src
+        - action: sync
+          path: ./main.py
+          target: /home/appuser/app/main.py
+
+volumes:
+  postgres_data:
+
+networks:
+  agentr-network:
+    driver: bridge

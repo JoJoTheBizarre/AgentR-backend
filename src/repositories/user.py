@@ -13,7 +13,7 @@ def create_user(user: User) -> User:
     """Create a new user in the database."""
     with db_manager.session() as session:
         session.add(user)
-        session.flush()  # Get the ID immediately
+        session.flush()
         session.refresh(user)
         return user
 
@@ -42,7 +42,6 @@ def update_user(user_id: str, **kwargs) -> User:
         if not user:
             raise ValueError(f"User with id {user_id} not found")
         
-        # Update only provided fields
         for key, value in kwargs.items():
             if hasattr(user, key):
                 setattr(user, key, value)
