@@ -13,10 +13,12 @@ dependencies = [
     "passlib (>=1.7.4,<2.0.0)",
     "python-multipart (>=0.0.22,<0.0.23)",
     "pydantic-settings (>=2.12.0,<3.0.0)",
-    "sqlmodel (>=0.0.31,<0.0.32)"
+    "sqlmodel (>=0.0.31,<0.0.32)",
+    "psycopg2-binary (>=2.9.11,<3.0.0)"
 ]
 
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+

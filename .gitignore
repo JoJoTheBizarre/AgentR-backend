@@ -5,10 +5,11 @@ __pycache__/
 .ruff*
 # C extensions
 *.so
-
+.env
 # Distribution / packaging
 .Python
 env/
+.claude
 venv/
 ENV/
 env.bak/

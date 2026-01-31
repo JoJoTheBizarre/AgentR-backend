@@ -2,63 +2,67 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:16-alpine
+    container_name: my_postgres_db
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-agentr}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    networks:
+      - app_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - agentr-network
 
-  migrate:
-    build: .
-    command: python -m src.migrations.migrate
+  flyway:
+    image: flyway/flyway:10-alpine
+    container_name: flyway_migration
+    command: migrate
+    volumes:
+      - ./migrations:/flyway/sql
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agentr}
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      FLYWAY_USER: ${POSTGRES_USER}
+      FLYWAY_PASSWORD: ${POSTGRES_PASSWORD}
+      FLYWAY_SCHEMAS: ${FLYWAY_SCHEMAS}
+      FLYWAY_BASELINE_ON_MIGRATE: ${FLYWAY_BASELINE_ON_MIGRATE}
+    networks:
+      - app_network
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - agentr-network
 
-  backend:
-    build: .
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agentr}
-      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
-      ALGORITHM: ${ALGORITHM:-HS256}
-      token_expire_minutes: ${token_expire_minutes:-30}
-    ports:
-      - "8000:8000"
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-    networks:
-      - agentr-network
-    volumes:
-      - ./src:/home/appuser/app/src
-      - ./main.py:/home/appuser/app/main.py
-    develop:
-      watch:
-        - action: sync
-          path: ./src
-          target: /home/appuser/app/src
-        - action: sync
-          path: ./main.py
-          target: /home/appuser/app/main.py
+  api:
+      build:
+        context: .
+        dockerfile: Dockerfile
+      container_name: agentr_backend
+      env_file:
+        - .env
+      environment:
+        DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${POSTGRES_DB}"
+      ports:
+        - "8000:8000"
+      networks:
+        - app_network
+      depends_on:
+        postgres:
+          condition: service_healthy
+
 
 volumes:
   postgres_data:
 
 networks:
-  agentr-network:
+  app_network:
     driver: bridge

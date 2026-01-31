@@ -18,12 +18,10 @@ def create_user(user: User) -> User:
         return user
 
 
-def get_user_by_id(user_id: str) -> User:
-    """Retrieve a user by their ID."""
+def get_user_by_id(user_id: str) -> User | None:
+    """Retrieve a user by their ID or None."""
     with db_manager.session() as session:
         user = session.get(User, user_id)
-        if not user:
-            raise ValueError(f"User with id {user_id} not found")
         return user
 
 
@@ -36,7 +34,7 @@ def get_user_by_username(username: str) -> User | None:
 
 
 def update_user(user_id: str, **kwargs) -> User:
-    """Update user fields."""
+    """Update user fields, raises Error if used not found"""
     with db_manager.session() as session:
         user = session.get(User, user_id)
         if not user:
@@ -63,12 +61,12 @@ def delete_user(user_id: str) -> bool:
         return True
 
 
-def user_exists(username: str) -> bool:
-    """Check if a username already exists."""
+def user_exists(username: str) -> User | None:
+    """Check if a username already exists, returns User or None"""
     with db_manager.session() as session:
         statement = select(User).where(User.username == username)
         user = session.exec(statement).first()
-        return user is not None
+        return user
 
 
 def update_password(user_id: str, new_password_hash: str) -> bool:
