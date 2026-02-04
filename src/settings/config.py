@@ -9,5 +9,6 @@ class AuthSettings(BaseSettings):
     class Config:
         env_file = ".env"
 
+
 class DatabaseSettings(BaseSettings):
     DATABASE_URL: str

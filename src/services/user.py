@@ -1,148 +1,179 @@
-"""
-Authentication Service Layer
-Handles business logic for user authentication, registration, and JWT operations.
-"""
-
-from datetime import timedelta, datetime, timezone
-from typing import Any
-
-from jose import jwt
-from jose.exceptions import JWTError
+from datetime import datetime, timezone
+from typing import Optional
 import uuid
 from passlib.context import CryptContext
-from pydantic import BaseModel, Field
 
-from src.repositories.user import get_user_by_username, create_user, user_exists
-from src.models import User
-from src.settings import AuthSettings
-from src.services.status import InternalStatus
-
-_auth_settings_cache: AuthSettings | None = None
+from src.repositories.user import UserRepository
+from src.db.models import User
+from src.services.status import InternalStatus, Result
 
 
-def get_auth_settings() -> AuthSettings:
-    """Get cached AuthSettings instance."""
-    global _auth_settings_cache
-    if _auth_settings_cache is None:
-        _auth_settings_cache = AuthSettings()  # type: ignore
-    return _auth_settings_cache
+class UserService:
+    """Handles user registration and management operations."""
 
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    def __init__(self, user_repository: UserRepository | None = None):
+        """
+        Initialize UserService.
+        
+        Args:
+            user_repository: Optional UserRepository instance for dependency injection
+        """
+        self.user_repository = user_repository or UserRepository()
 
+    def register_user(self, username: str, plain_password: str) -> Result[User]:
+        """Register a new user with the given credentials."""
+        if self.user_repository.exists(username):
+            return Result.failure(
+                InternalStatus.USER_ALREADY_EXISTS,
+                f"Username '{username}' is already taken"
+            )
 
-class JWTPayload(BaseModel):
-    """JWT token payload structure."""
-
-    username: str = Field(..., description="Username included in the payload")
-    exp: datetime = Field(..., description="The expiration time of the token")
-
-
-def hash_password(plain_password: str) -> str:
-    """
-    Hash a plain text password using bcrypt.
-    """
-    return pwd_context.hash(plain_password)
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plain text password against a hashed password."""
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def get_jwt_username(token: str) -> str:
-    """Extract and validate username from JWT token."""
-    try:
-        payload = jwt.decode(
-            token,
-            get_auth_settings().SECRET_KEY,
-            algorithms=[get_auth_settings().ALGORITHM],
+        user = User(
+            id=uuid.uuid4(),
+            username=username,
+            password_hash=self.pwd_context.hash(plain_password),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 
-        # Validate payload structure
-        jwt_payload = JWTPayload(**payload)
+        created_user = self.user_repository.create(user)
+        return Result.success(created_user, "User registered successfully")
 
-        if not jwt_payload.username:
-            raise JWTError("Username not found in token")
+    def get_user_by_id(self, user_id: str) -> Result[User]:
+        """Retrieve a user by their ID."""
+        user = self.user_repository.get_by_id(user_id)
+        
+        if not user:
+            return Result.failure(
+                InternalStatus.USER_NOT_FOUND,
+                f"User with ID '{user_id}' not found"
+            )
+        
+        return Result.success(user)
 
-        return jwt_payload.username
+    def get_user_by_username(self, username: str) -> Result[User]:
+        """Retrieve a user by their username."""
+        user = self.user_repository.get_by_username(username)
+        
+        if not user:
+            return Result.failure(
+                InternalStatus.USER_NOT_FOUND,
+                f"User '{username}' not found"
+            )
+        
+        return Result.success(user)
 
-    except Exception as e:
-        raise JWTError(f"Invalid token: {str(e)}")
+    def get_all_users(self) -> Result[list[User]]:
+        """Retrieve all users from the database."""
+        users = self.user_repository.get_all()
+        return Result.success(users, f"Retrieved {len(users)} users")
 
+    def user_exists(self, username: str) -> bool:
+        """Check if a user with the given username exists."""
+        return self.user_repository.exists(username)
 
-def create_jwt_payload(username: str) -> dict[str, Any]:
-    """Create a JWT payload dictionary."""
-    now_utc = datetime.now(timezone.utc)
-    exp = now_utc + timedelta(minutes=get_auth_settings().token_expire_minutes)
-    return JWTPayload(username=username, exp=exp).model_dump()
+    def update_user(
+        self, user_id: str, username: Optional[str] = None, **kwargs
+    ) -> Result[User]:
+        """Update user information."""
+        try:
+            # Check if user exists
+            existing_user = self.user_repository.get_by_id(user_id)
+            if not existing_user:
+                return Result.failure(
+                    InternalStatus.USER_NOT_FOUND,
+                    f"User with ID '{user_id}' not found"
+                )
 
+            # If updating username, check if new username is already taken
+            if username and username != existing_user.username:
+                if self.user_repository.exists(username):
+                    return Result.failure(
+                        InternalStatus.USER_ALREADY_EXISTS,
+                        f"Username '{username}' is already taken"
+                    )
+                kwargs["username"] = username
 
-def create_jwt_token(username: str) -> str:
-    """Generate a JWT token for a user."""
-    payload = create_jwt_payload(username)
-    encoded_jwt = jwt.encode(
-        payload, get_auth_settings().SECRET_KEY, algorithm=get_auth_settings().ALGORITHM
-    )
-    return encoded_jwt
+            # Add updated_at timestamp
+            kwargs["updated_at"] = datetime.now(timezone.utc)
 
+            updated_user = self.user_repository.update(user_id, **kwargs)
+            return Result.success(updated_user, "User updated successfully")
 
-def verify_credentials(username: str, plain_password: str) -> InternalStatus:
-    """Verify user credentials by checking username and password."""
-    user = get_user_by_username(username)
+        except ValueError:
+            return Result.failure(
+                InternalStatus.USER_NOT_FOUND,
+                f"User with ID '{user_id}' not found"
+            )
 
-    if not user:
-        return InternalStatus.USER_NOT_FOUND
+    def change_password(
+        self, user_id: str, old_password: str, new_password: str
+    ) -> Result[None]:
+        """Change a user's password after verifying the old password."""
+        user = self.user_repository.get_by_id(user_id)
+        
+        if not user:
+            return Result.failure(
+                InternalStatus.USER_NOT_FOUND,
+                f"User with ID '{user_id}' not found"
+            )
 
-    if not verify_password(plain_password, user.password_hash):
-        return InternalStatus.WRONG_PASSWORD
+        # Verify old password
+        if not self.pwd_context.verify(old_password, user.password_hash):
+            return Result.failure(
+                InternalStatus.WRONG_PASSWORD,
+                "Current password is incorrect"
+            )
 
-    return InternalStatus.SUCCESS
+        # Hash and update new password
+        new_password_hash = self.pwd_context.hash(new_password)
+        success = self.user_repository.update_password(user_id, new_password_hash)
 
+        if not success:
+            return Result.failure(
+                InternalStatus.USER_NOT_FOUND,
+                f"Failed to update password for user '{user_id}'"
+            )
+        
+        return Result.success(message="Password changed successfully")
 
-def register_user(
-    username: str, plain_password: str, email: str | None = None
-) -> InternalStatus:
-    """Register a new user with the given credentials."""
-    if user_exists(username):
-        return InternalStatus.USER_ALREADY_EXISTS
+    def reset_password(self, user_id: str, new_password: str) -> Result[None]:
+        """Reset a user's password without requiring the old password."""
+        if not self.user_repository.get_by_id(user_id):
+            return Result.failure(
+                InternalStatus.USER_NOT_FOUND,
+                f"User with ID '{user_id}' not found"
+            )
 
-    user = User(
-        id=uuid.uuid4(),
-        username=username,
-        password_hash=hash_password(plain_password),
-    )
+        new_password_hash = self.pwd_context.hash(new_password)
+        success = self.user_repository.update_password(user_id, new_password_hash)
 
-    create_user(user)
-    return InternalStatus.SUCCESS
+        if not success:
+            return Result.failure(
+                InternalStatus.USER_NOT_FOUND,
+                f"Failed to reset password for user '{user_id}'"
+            )
+        
+        return Result.success(message="Password reset successfully")
 
+    def delete_user(self, user_id: str) -> Result[None]:
+        """Delete a user from the database."""
+        success = self.user_repository.delete(user_id)
+        
+        if not success:
+            return Result.failure(
+                InternalStatus.USER_NOT_FOUND,
+                f"User with ID '{user_id}' not found"
+            )
+        
+        return Result.success(message="User deleted successfully")
 
-def authenticate_user(
-    username: str, plain_password: str
-) -> tuple[InternalStatus, str | None]:
-    """Authenticate user and generate JWT token if successful."""
-    status = verify_credentials(username, plain_password)
+    def verify_password(self, plain_password: str, hashed_password: str) -> bool:
+        """Verify a plain text password against a hashed password."""
+        return self.pwd_context.verify(plain_password, hashed_password)
 
-    if status != InternalStatus.SUCCESS:
-        return status, None
-
-    token = create_jwt_token(username)
-    return InternalStatus.SUCCESS, token
-
-
-def verify_jwt_token(token: str) -> tuple[bool, str | None]:
-    """Verify JWT token and return username if valid."""
-    try:
-        username = get_jwt_username(token)
-        return True, username
-    except JWTError:
-        return False, None
-
-
-def get_user_from_token(token: str) -> User | None:
-    """Get user object from JWT token."""
-    try:
-        username = get_jwt_username(token)
-        return get_user_by_username(username)
-    except JWTError:
-        return None
+    def hash_password(self, plain_password: str) -> str:
+        """Hash a plain text password."""
+        return self.pwd_context.hash(plain_password)
